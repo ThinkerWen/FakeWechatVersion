@@ -18,7 +18,7 @@ python fake_wechat_version.py c=3.9.6.33 t=3.9.12.51
 ### 2. 编译版运行
 在 [Release](https://github.com/ThinkerWen/FakeWechatVersion/releases) 页面下载最新版 `fake_wechat.exe`。
 
-请将 `fake_wechat.exe` 放在微信安装目录下，与 `WeChat.exe`、`WeCaht.exe` 或 `Weixin.exe` 放在同一目录中。
+请将 `fake_wechat.exe` 放在微信安装目录下，与 `WeChat.exe` 或 `Weixin.exe` 放在同一目录中。
 
 双击 `fake_wechat.exe` 即可直接启动微信；
 
