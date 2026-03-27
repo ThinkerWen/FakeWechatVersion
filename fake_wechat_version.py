@@ -1,10 +1,29 @@
+import os
+import subprocess
 import sys
 
 from pymem import Pymem
-from pymem.exception import MemoryReadError
+from pymem.exception import MemoryReadError, ProcessNotFound
 
 
-def scan_for_offsets(wx: Pymem, base_address: int, hex_value: int, total_size: int = 0x10000000, chunk_size: int = 0x1000000) -> list:
+USAGE_MESSAGE = (
+    "请提供参数:\n"
+    "\tc: 当前版本\n"
+    "\tt: 目标版本\n"
+    "例如：\n"
+    "\tpython fake_wechat_version.py c=3.9.6.33 t=3.9.12.51"
+)
+
+SUPPORTED_EXECUTABLES = ("WeChat.exe", "Weixin.exe")
+
+
+def scan_for_offsets(
+    wx: Pymem,
+    base_address: int,
+    hex_value: int,
+    total_size: int = 0x10000000,
+    chunk_size: int = 0x1000000,
+) -> list:
     """
     分块扫描内存以找到指定十六进制值的偏移地址。
 
@@ -33,7 +52,7 @@ def scan_for_offsets(wx: Pymem, base_address: int, hex_value: int, total_size: i
 
         memory = previous_chunk_tail + memory
         for i in range(len(memory) - len(hex_bytes) + 1):
-            if memory[i:i + len(hex_bytes)] == hex_bytes:
+            if memory[i : i + len(hex_bytes)] == hex_bytes:
                 offsets.append(chunk_start + i - len(previous_chunk_tail))
 
         previous_chunk_tail = memory[-overlap_size:]
@@ -110,23 +129,90 @@ def convert_version_to_hex(version: str) -> str:
     return value
 
 
-if __name__ == "__main__":
-    args = sys.argv[1:]
+def get_script_dir() -> str:
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def find_wechat_executable() -> tuple[str, str] | tuple[None, None]:
+    script_dir = get_script_dir()
+    for executable in SUPPORTED_EXECUTABLES:
+        executable_path = os.path.join(script_dir, executable)
+        if os.path.isfile(executable_path):
+            return executable, executable_path
+    return None, None
+
+
+def open_wechat_process() -> Pymem:
+    last_error = None
+    for executable in SUPPORTED_EXECUTABLES:
+        try:
+            return Pymem(executable)
+        except ProcessNotFound as exc:
+            last_error = exc
+
+    raise ProcessNotFound(
+        "未找到微信进程，请确认微信已经打开，并使用 WeChat.exe 或 Weixin.exe 启动"
+    ) from last_error
+
+
+def launch_wechat() -> None:
+    executable, executable_path = find_wechat_executable()
+    if executable is None or executable_path is None:
+        raise FileNotFoundError(
+            "未找到 WeChat.exe 或 Weixin.exe，请将本文件放在微信安装目录下"
+        )
+
+    launch_env = os.environ.copy()
+    launch_env["__COMPAT_LAYER"] = "~ ARM64WOWONAMD64"
+    subprocess.Popen([executable_path], env=launch_env, cwd=get_script_dir())
+
+
+def parse_args(args: list[str]) -> tuple[str | None, str | None, bool]:
     current = None
     target = None
+    show_help = False
 
     for arg in args:
         if arg.startswith("c="):
-            current = arg.split("=")[1]
+            current = arg.split("=", 1)[1]
         elif arg.startswith("t="):
-            target = arg.split("=")[1]
+            target = arg.split("=", 1)[1]
+        elif arg in {"-h", "--help", "h", "help"}:
+            show_help = True
 
-    if not current or not target:
-        print("请提供参数:\n\tc: 当前版本\n\tt:目标版本\n例如：\n\tpython fake_wechat_version.py c=3.9.6.33 t=3.9.12.51")
-        sys.exit(1)
+    return current, target, show_help
+
+
+def main() -> int:
+    current, target, show_help = parse_args(sys.argv[1:])
+
+    if show_help:
+        print(USAGE_MESSAGE)
+        return 0
+
+    if current is None and target is None:
+        try:
+            launch_wechat()
+        except FileNotFoundError as e:
+            print(e)
+            return 1
+        return 0
+
+    if current is None or target is None:
+        print(USAGE_MESSAGE)
+        return 1
 
     try:
-        pm = Pymem("WeChat.exe")
+        pm = open_wechat_process()
         fake_version(pm, current, target)
     except Exception as e:
         print(f"{e}\n请确认输入的版本号正确，并确认微信程序已经打开！")
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
